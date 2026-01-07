@@ -1,6 +1,7 @@
 const path = require('path');
 const webpack = require('webpack');
 const dotenv = require('dotenv');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 // Load environment variables from .env file
 const env = dotenv.config().parsed || {};
@@ -17,6 +18,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'bundle.js',
+    publicPath: '/'
   },
   module: {
     rules: [
@@ -45,13 +47,18 @@ module.exports = {
     extensions: ['.tsx', '.ts', '.js']
   },
   plugins: [
-    new webpack.DefinePlugin(envKeys)
+    new webpack.DefinePlugin(envKeys),
+    new HtmlWebpackPlugin({
+      template: './public/index.html',
+      filename: 'index.html'
+    })
   ],
   devServer: {
     static: {
       directory: path.join(__dirname, 'public'),
     },
     port: 3000,
-    hot: true
+    hot: true,
+    historyApiFallback: true
   }
 };
