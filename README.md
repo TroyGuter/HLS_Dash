@@ -1,192 +1,361 @@
-# HLS Video Player Dashboard
+HLS_Dash - LS-AMER LPV Dashboard
 
-A React-based dashboard for streaming HLS (HTTP Live Streaming) video content with dynamic AWS MediaPackage integration.
+A real-time HLS livestream monitoring dashboard built with React and TypeScript, featuring multi-stream video playback and CloudWatch metrics integration.
+Overview
 
-## Features
+HLS_Dash is a web-based dashboard for monitoring and viewing multiple AWS MediaPackage HLS livestreams simultaneously. The application provides flexible layout options, real-time CloudWatch metrics, and a responsive interface for operations teams.
+Features
 
-- **Dynamic HLS stream discovery**: Automatically fetches all MediaPackage channels from your AWS account
-- **Multi-stream playback**: Display up to 6 concurrent HLS video streams
-- **Real-time channel selection**: Dropdown menus populated with actual channel names from AWS
-- **AWS MediaPackage integration**: Direct integration with AWS MediaPackage endpoints
-- **Responsive grid layout**: Automatically adjusts video layout based on screen size
-- **Cross-browser compatibility**: Uses hls.js for browsers without native HLS support
-- **Error handling**: Built-in error logging for stream and API issues
+    Multi-Stream Video Playback: View 1, 2, 4, or 6 HLS streams simultaneously
+    Flexible Layouts: Dynamic grid layouts with preset buttons for quick switching
+    CloudWatch Metrics Integration: Real-time monitoring of stream health, bitrate, latency, and error rates
+    Channel Selection: Dropdown selectors to switch between available MediaPackage channels
+    Persistent Preferences: Layout preferences saved to browser localStorage
+    Responsive Design: Adapts to different screen sizes and devices
 
-## Technology Stack
+AWS Architecture
+Architecture Diagram
 
-- **React 18** with TypeScript
-- **hls.js** for HLS video streaming
-- **AWS Lambda** for MediaPackage API integration
-- **AWS API Gateway** for secure API access
-- **AWS SDK v3** for MediaPackage operations
-- **Webpack** for bundling and development server
+┌─────────────────────────────────────────────────────────────────────┐
+│                          AWS Cloud (us-east-2)                       │
+│                                                                       │
+│  ┌──────────────────┐         ┌─────────────────┐                  │
+│  │  AWS Amplify     │         │  API Gateway    │                  │
+│  │  (Hosting)       │────────▶│  (REST API)     │                  │
+│  │                  │         │                  │                  │
+│  │  - React App     │         │  Endpoints:      │                  │
+│  │  - CI/CD         │         │  - /channels     │                  │
+│  │  - HTTPS         │         │  - /metrics      │                  │
+│  └──────────────────┘         └────────┬────────┘                  │
+│                                         │                            │
+│                                         │ API Key Auth               │
+│                                         │                            │
+│                          ┌──────────────┴──────────────┐            │
+│                          │                              │            │
+│                   ┌──────▼──────┐            ┌─────────▼────────┐  │
+│                   │   Lambda     │            │     Lambda       │  │
+│                   │  (Channels)  │            │ (CloudWatch)     │  │
+│                   │              │            │                  │  │
+│                   │  - Fetch     │            │  - GetMetric     │  │
+│                   │    channel   │            │    Statistics    │  │
+│                   │    list      │            │  - Calculate     │  │
+│                   └──────┬───────┘            │    metrics       │  │
+│                          │                    └─────────┬────────┘  │
+│                          │                              │            │
+│                   ┌──────▼───────┐            ┌────────▼─────────┐ │
+│                   │ MediaPackage │            │   CloudWatch     │ │
+│                   │              │            │                  │ │
+│                   │  - Channels  │            │  - Metrics       │ │
+│                   │  - Endpoints │            │  - Logs          │ │
+│                   │  - HLS URLs  │            │                  │ │
+│                   └──────────────┘            └──────────────────┘ │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
 
-## AWS Architecture
+Components
+1. AWS Amplify
 
-```
-React App → API Gateway → Lambda Function → MediaPackage API
-```
+    Purpose: Hosts and serves the React application
+    Features:
+        Continuous deployment from GitHub
+        HTTPS with SSL certificate
+        Environment variable management
+        Build and deployment automation
+    URL Format: https://main.d[id].amplifyapp.com
 
-- **API Gateway**: Provides CORS-enabled REST endpoint
-- **Lambda Function**: Fetches channels and endpoints from MediaPackage
-- **MediaPackage**: Serves HLS video streams
+2. API Gateway
 
-## Prerequisites
+    Endpoint: https://7s0pbiqmb5.execute-api.us-east-2.amazonaws.com/prod
+    Authentication: API Key (x-api-key header)
+    Endpoints:
+        GET /channels - Retrieves list of MediaPackage channels and endpoints
+        POST /metrics - Fetches CloudWatch metrics for specified channel
+    Features:
+        CORS enabled for browser access
+        IAM authentication configured
+        Usage plan with API key management
 
-- Node.js (version 14 or higher)
-- AWS Account with MediaPackage channels configured
-- AWS CLI configured (for deployment)
+3. AWS Lambda Functions
+GetChannels Function
 
-## Installation
+    Runtime: Node.js 20.x
+    Purpose: Queries MediaPackage API to retrieve channel information
+    Returns: Array of channels with descriptions and HLS endpoint URLs
+    Permissions: MediaPackage read access
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd my-react-project
-```
+GetCloudWatchMetrics Function
 
-2. Install dependencies:
-```bash
-npm install
-```
+    Runtime: Node.js 20.x
+    Purpose: Fetches CloudWatch metrics for MediaPackage channels
+    Metrics Retrieved:
+        EgressBytes (bandwidth usage)
+        EgressRequestCount (viewer requests)
+        EgressResponseTime (latency)
+        Error rates (4xx status codes)
+    Permissions: CloudWatch read access (CloudWatchReadOnlyAccess policy)
 
-## AWS Setup
+4. AWS MediaPackage
 
-### 1. Deploy Lambda Function
-```bash
-cd lambda
-npm install
-zip -r mediapackage-lambda.zip .
-```
+    Region: us-east-2
+    Purpose: Origin server for HLS livestreams
+    Features:
+        Multiple channels with unique endpoints
+        HLS packaging and delivery
+        CloudWatch metrics integration
 
-Deploy using AWS CLI or upload via AWS Console.
+5. Amazon CloudWatch
 
-### 2. Set up API Gateway
-Follow the instructions in `lambda/api-gateway-gui-setup.md` to create:
-- REST API with `/channels` resource
-- GET method with Lambda proxy integration
-- CORS configuration for browser access
+    Namespace: AWS/MediaPackage
+    Metrics Collected:
+        EgressBytes - Data delivered to viewers
+        EgressRequestCount - Number of requests
+        EgressResponseTime - Response latency
+        IngressBytes - Data received from source
+    Retention: 15 months
+    Granularity: 1-minute intervals
 
-### 3. Required IAM Permissions
-Lambda execution role needs:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "mediapackage:ListChannels",
-        "mediapackage:ListOriginEndpoints"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+Technology Stack
+Frontend
 
-## Usage
+    React 18.2.0 - UI framework
+    TypeScript 4.9.5 - Type safety
+    HLS.js 1.6.15 - HLS video playback
+    Webpack 5 - Module bundler
+    Babel 7 - JavaScript transpiler
 
-### Development
+AWS SDK
 
-Start the development server:
-```bash
-npm start
-```
+    @aws-sdk/client-cloudwatch 3.962.0 - CloudWatch API client
+    @aws-sdk/credential-providers 3.962.0 - AWS authentication
 
-The application will open at `http://localhost:8080` and automatically load your MediaPackage channels.
+Build Tools
 
-### Production Build
+    webpack-dev-server - Local development
+    ts-loader - TypeScript compilation
+    babel-loader - JavaScript transpilation
 
-Create a production build:
-```bash
-npm run build
-```
+Project Structure
 
-## Configuration
-
-The app automatically discovers all HLS-enabled MediaPackage channels in your AWS account. No manual URL configuration required.
-
-To change the AWS region, update the Lambda function in `lambda/index.js`:
-```javascript
-const client = new MediaPackageClient({ region: "your-region" });
-```
-
-## Project Structure
-
-```
-my-react-project/
-├── public/
-│   └── index.html          # HTML template
+HLS_Dash-main/
 ├── src/
-│   ├── App.tsx            # Main application component
-│   └── index.tsx          # Application entry point
-├── lambda/
-│   ├── index.js           # Lambda function code
-│   ├── package.json       # Lambda dependencies
-│   └── *.md              # Setup instructions
-├── package.json           # Frontend dependencies
-├── tsconfig.json          # TypeScript configuration
-├── webpack.config.js      # Webpack configuration
-└── README.md             # This file
-```
+│   ├── components/
+│   │   └── MetricsDashboard.tsx    # CloudWatch metrics panel
+│   ├── services/
+│   │   └── cloudwatch.service.ts   # CloudWatch API wrapper
+│   ├── App.tsx                      # Main application component
+│   └── index.tsx                    # Application entry point
+├── public/
+│   └── index.html                   # HTML template
+├── .env                             # Environment variables (not committed)
+├── .env.example                     # Environment variable template
+├── .gitignore                       # Git ignore rules
+├── package.json                     # Dependencies and scripts
+├── tsconfig.json                    # TypeScript configuration
+├── webpack.config.js                # Webpack configuration
+└── README.md                        # This file
 
-## Features in Detail
+Setup Instructions
+Prerequisites
 
-### Dynamic Channel Discovery
-- Automatically scans your AWS MediaPackage account
-- Populates dropdowns with actual channel names
-- Updates when new channels are added to MediaPackage
+    Node.js 18+ and npm
+    AWS Account with appropriate permissions
+    GitHub account (for Amplify deployment)
 
-### Multi-Stream Management
-- 6 independent video players
-- Individual channel selection per player
-- Real-time stream switching
+Local Development
 
-### Error Handling
-- API connection status indicators
-- Stream health monitoring
-- Detailed error logging in browser console
+    Clone the repository
 
-## Troubleshooting
+    git clone https://github.com/TroyGuter/HLS_Dash.git
+    cd HLS_Dash-main
 
-### Common Issues
+    Install dependencies
 
-1. **"Loading channels from AWS..." persists**: Check Lambda function logs and IAM permissions
-2. **CORS errors**: Verify API Gateway CORS configuration
-3. **Videos not loading**: Ensure MediaPackage endpoints are accessible
-4. **Empty dropdowns**: Check Lambda function has MediaPackage permissions
+    npm install
 
-### Debugging Steps
+    Configure environment variables
 
-1. Check browser developer console for errors
-2. Verify API Gateway endpoint is accessible
-3. Check Lambda function logs in CloudWatch
-4. Confirm MediaPackage channels exist and have HLS endpoints
+    Create a .env file in the project root:
 
-## Browser Support
+    REACT_APP_API_URL=https://7s0pbiqmb5.execute-api.us-east-2.amazonaws.com/prod
+    REACT_APP_API_KEY=your_api_key_here
 
-- Chrome 34+
-- Firefox 42+
-- Safari 8+
-- Edge 12+
+    Start development server
 
-## Contributing
+    npm start
 
-1. Fork the repository
-2. Create a feature branch
-3. Test with your AWS MediaPackage setup
-4. Submit a pull request
+    The app will open at http://localhost:3000
 
-## License
+    Build for production
 
-[Add your license information here]
+    npm run build
 
-## Support
+    Output will be in the dist/ directory
 
-For AWS-related issues, check:
-- Lambda function logs in CloudWatch
-- API Gateway execution logs
-- MediaPackage channel status
+AWS Setup
+1. MediaPackage Channels
 
-For application issues, check the browser developer console for detailed error information.
+    Create MediaPackage channels in us-east-2 region
+    Configure HLS endpoints
+    Note channel IDs and descriptions
+
+2. Lambda Functions
+GetChannels Lambda
+
+// Runtime: Node.js 20.x
+// Handler: index.handler
+// Permissions: MediaPackage read access
+
+GetCloudWatchMetrics Lambda
+
+// Runtime: Node.js 20.x
+// Handler: index.handler
+// Permissions: CloudWatchReadOnlyAccess
+
+3. API Gateway
+
+    Create REST API
+    Create resources: /channels and /metrics
+    Create methods:
+        GET /channels → GetChannels Lambda
+        POST /metrics → GetCloudWatchMetrics Lambda
+    Enable CORS on both endpoints
+    Create API key and usage plan
+    Deploy to prod stage
+
+4. Amplify Deployment
+
+    Go to AWS Amplify console
+    Click "New app" → "Host web app"
+    Connect GitHub repository
+    Configure build settings:
+
+    version: 1
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm install
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+
+    Add environment variables:
+        REACT_APP_API_URL
+        REACT_APP_API_KEY
+    Deploy
+
+Usage
+Layout Selection
+
+    Click preset buttons in the header: "1 Player", "2 Players", "4 Players", or "6 Players"
+    Layout preference is automatically saved to browser localStorage
+
+Channel Selection
+
+    Use dropdown menus below each video player to switch between available channels
+    Channel names are fetched from MediaPackage via API Gateway
+
+CloudWatch Metrics
+
+    Click the "← Metrics" button on the right side of the screen
+    View real-time metrics for all active streams:
+        Bitrate: Data transfer rate (Mbps)
+        Requests: Number of viewer requests
+        Latency: Average response time (ms)
+        Error Rate: Percentage of failed requests
+    Metrics auto-refresh every 60 seconds
+    Toggle auto-refresh on/off as needed
+
+Metrics Explained
+Bitrate (Mbps)
+
+    Calculated from EgressBytes over 5-minute periods
+    Indicates stream quality and bandwidth usage
+    Typical values:
+        SD: 1-3 Mbps
+        HD: 3-6 Mbps
+        Full HD: 5-10 Mbps
+
+Requests
+
+    Total HTTP requests to MediaPackage endpoint
+    Each viewer makes 6-30 requests/minute depending on segment duration
+    Use to estimate viewer count
+
+Latency (ms)
+
+    Average response time from MediaPackage
+    Performance indicators:
+        Excellent: < 100ms
+        Good: 100-200ms
+        Acceptable: 200-500ms
+        Poor: > 500ms
+
+Error Rate (%)
+
+    Percentage of requests with 4xx/5xx status codes
+    Health indicators:
+        Excellent: < 1%
+        Good: 1-5%
+        Concerning: > 5%
+        Critical: > 10%
+
+Security
+
+    API Key Authentication: All API Gateway requests require x-api-key header
+    Environment Variables: Sensitive credentials stored in Amplify environment variables
+    HTTPS Only: All traffic encrypted via SSL/TLS
+    IAM Roles: Lambda functions use least-privilege IAM roles
+    CORS Configuration: Restricted to necessary origins
+
+Troubleshooting
+Videos Not Loading
+
+    Check MediaPackage channel status in AWS console
+    Verify API Gateway endpoint is accessible
+    Check browser console for CORS errors
+    Confirm API key is valid and associated with usage plan
+
+Metrics Not Displaying
+
+    Verify Lambda function has CloudWatch read permissions
+    Check Lambda logs in CloudWatch for errors
+    Ensure /metrics endpoint is deployed in API Gateway
+    Confirm channels have recent activity (metrics require data)
+
+Build Failures
+
+    Clear webpack cache: rm -rf dist
+    Delete node_modules and reinstall: npm install
+    Check for TypeScript errors: npx tsc --noEmit
+
+Contributing
+
+    Fork the repository
+    Create a feature branch: git checkout -b feature-name
+    Commit changes: git commit -m 'Add feature'
+    Push to branch: git push origin feature-name
+    Submit a pull request
+
+License
+
+This project is proprietary and confidential.
+Support
+
+For issues or questions, contact the LS-AMER LPV team.
+Changelog
+Version 1.0.0 (January 2026)
+
+    Initial release
+    Multi-stream HLS video playback
+    Layout selector (1, 2, 4, 6 players)
+    CloudWatch metrics integration
+    API Gateway + Lambda backend
+    AWS Amplify deployment
