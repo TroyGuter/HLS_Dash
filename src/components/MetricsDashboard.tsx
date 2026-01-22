@@ -5,12 +5,14 @@ import CloudWatchService, { StreamMetrics } from '../services/cloudwatch.service
 
 interface MetricsDashboardProps {
   channelNames: string[];
+  activeChannelIndices: number[];
   isVisible: boolean;
   onToggle: () => void;
 }
 
 const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ 
-  channelNames, 
+  channelNames,
+  activeChannelIndices, 
   isVisible,
   onToggle 
 }) => {
@@ -26,13 +28,16 @@ const cloudWatchService = new CloudWatchService(API_URL, API_KEY);
 
 
   const fetchMetrics = async () => {
-    if (channelNames.length === 0) return;
+    // Only fetch metrics for channels that are currently displayed
+    const activeChannelNames = activeChannelIndices.map(index => channelNames[index]);
+
+    if (activeChannelNames.length === 0) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const metricsPromises = channelNames.map(name => 
+      const metricsPromises = activeChannelNames.map(name =>
         cloudWatchService.getChannelMetrics(name, 60)
       );
       const results = await Promise.all(metricsPromises);
@@ -49,7 +54,7 @@ const cloudWatchService = new CloudWatchService(API_URL, API_KEY);
     if (isVisible) {
       fetchMetrics();
     }
-  }, [isVisible, channelNames]);
+  }, [isVisible, activeChannelIndices]);
 
   useEffect(() => {
     if (!autoRefresh || !isVisible) return;
@@ -268,14 +273,17 @@ const cloudWatchService = new CloudWatchService(API_URL, API_KEY);
               <div style={styles.channelMetrics}>
                 <h3>Channel Details</h3>
                 {metrics.map((metric, index) => {
+                  const playerIndex = activeChannelIndices[index];
                   const latestBytes = metric.egressBytes[metric.egressBytes.length - 1]?.value || 0;
                   const latestRequests = metric.requestCount[metric.requestCount.length - 1]?.value || 0;
                   const latestLatency = metric.responseTime[metric.responseTime.length - 1]?.value || 0;
                   const bitrate = cloudWatchService.calculateBitrate(latestBytes, 300);
 
-                  return (
-                    <div key={index} style={styles.channelCard}>
-                      <div style={styles.channelName}>{metric.channelName}</div>
+                return (
+                  <div key={index} style={styles.channelCard}>
+                    <div style={styles.channelName}>
+                      Player {playerIndex + 1}: {metric.channelName}
+                  </div>
                       <div style={styles.metricRow}>
                         <span style={styles.metricLabel}>Bitrate:</span>
                         <span style={styles.metricValue}>{bitrate}</span>

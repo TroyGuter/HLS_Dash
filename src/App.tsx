@@ -1,5 +1,7 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import MetricsDashboard from './components/MetricsDashboard';
+import IndividualMetrics from './components/IndividualMetrics';
 
 const API_URL = process.env.REACT_APP_API_URL || 'https://7s0pbiqmb5.execute-api.us-east-2.amazonaws.com/prod';
 const API_KEY = process.env.REACT_APP_API_KEY || '';
@@ -27,56 +29,55 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedUrls, setSelectedUrls] = useState([0, 1, 2, 3, 4, 5]);
   const [showMetrics, setShowMetrics] = useState(false);
+  const [showIndividualMetrics, setShowIndividualMetrics] = useState<boolean[]>([false, false, false, false, false, false]);
+  const [videoSize, setVideoSize] = useState<number>(100);
 
-
-  // Load saved layout from localStorage or default to 4 players
   const [layout, setLayout] = useState<LayoutOption>(() => {
     const saved = localStorage.getItem('preferredLayout');
     return saved ? JSON.parse(saved) : { name: '4 Players', rows: 2, cols: 2, totalPlayers: 4 };
   });
 
-  // Save layout preference to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('preferredLayout', JSON.stringify(layout));
   }, [layout]);
 
   const fetchEndpoints = async () => {
-  try {
-    setLoading(true);
-    setError(null);
+    try {
+      setLoading(true);
+      setError(null);
 
-    const response = await fetch(`${API_URL}/channels`, {
-      headers: {
-        'x-api-key': API_KEY
-      }
-});
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const channels = await response.json();
-    console.log('Fetched channels:', channels);
-
-    const urls: string[] = [];
-    const names: string[] = [];
-
-    channels.forEach((channel: any) => {
-      channel.endpoints.forEach((endpoint: any) => {
-        urls.push(endpoint.Url);
-        names.push(channel.Description || channel.Id);
+      const response = await fetch(`${API_URL}/channels`, {
+        headers: {
+          'x-api-key': API_KEY
+        }
       });
-    });
 
-    setHlsUrls(urls);
-    setChannelNames(names);
-    setLoading(false);
-  } catch (error) {
-    console.error('Failed to fetch endpoints:', error);
-    setError(error instanceof Error ? error.message : 'Unknown error');
-    setLoading(false);
-  }
-};
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const channels = await response.json();
+      console.log('Fetched channels:', channels);
+
+      const urls: string[] = [];
+      const names: string[] = [];
+
+      channels.forEach((channel: any) => {
+        channel.endpoints.forEach((endpoint: any) => {
+          urls.push(endpoint.Url);
+          names.push(channel.Description || channel.Id);
+        });
+      });
+
+      setHlsUrls(urls);
+      setChannelNames(names);
+      setLoading(false);
+    } catch (error) {
+      console.error('Failed to fetch endpoints:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error');
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchEndpoints();
@@ -123,6 +124,12 @@ const App: React.FC = () => {
     setLayout(newLayout);
   };
 
+  const toggleIndividualMetrics = (index: number) => {
+    const newShowMetrics = [...showIndividualMetrics];
+    newShowMetrics[index] = !newShowMetrics[index];
+    setShowIndividualMetrics(newShowMetrics);
+  };
+
   const getChannelId = (url: string) => {
     const parts = url.split('/');
     return parts[parts.length - 2];
@@ -137,6 +144,14 @@ const App: React.FC = () => {
 
   const activePlayers = videoRefs.slice(0, layout.totalPlayers);
 
+  // Calculate player width based on size percentage
+  // Base width calculation: at 100%, use layout columns; scale proportionally
+  const baseWidthPercent = 100 / layout.cols;
+  const playerWidthPercent = (baseWidthPercent * videoSize) / 100;
+  
+  // Calculate video height based on percentage
+  const videoHeight = (300 * videoSize) / 100;
+
   const styles = {
     appContainer: {
       width: '100vw',
@@ -147,25 +162,25 @@ const App: React.FC = () => {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif',
     },
     appHeader: {
-    backgroundColor: '#282c34',
-    color: 'white',
-    padding: '15px 20px',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
-    position: 'relative' as const,
-    flexWrap: 'wrap' as const,
-    gap: '15px',
+      backgroundColor: '#282c34',
+      color: 'white',
+      padding: '15px 20px',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+      position: 'relative' as const,
+      flexWrap: 'wrap' as const,
+      gap: '15px',
     },
     heading: {
-  fontSize: '24px',
-  fontWeight: 700,
-  color: '#61dafb',
-  margin: 0,
-  position: 'absolute' as const,
-  left: '20px',
-},
+      fontSize: '24px',
+      fontWeight: 700,
+      color: '#61dafb',
+      margin: 0,
+      position: 'absolute' as const,
+      left: '20px',
+    },
     layoutSelector: {
       display: 'flex',
       alignItems: 'center',
@@ -188,6 +203,32 @@ const App: React.FC = () => {
       fontWeight: isActive ? 600 : 500,
       transition: 'all 0.3s ease',
     }),
+    sizeControl: {
+      position: 'absolute' as const,
+      right: '20px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+    },
+    sizeLabel: {
+      fontWeight: 600,
+      color: 'white',
+      fontSize: '14px',
+    },
+    slider: {
+      width: '120px',
+      height: '6px',
+      borderRadius: '3px',
+      background: '#3d3d3d',
+      outline: 'none',
+      cursor: 'pointer',
+    },
+    sizeValue: {
+      fontWeight: 600,
+      color: '#61dafb',
+      fontSize: '14px',
+      minWidth: '50px',
+    },
     statusBar: {
       padding: '10px 20px',
       backgroundColor: '#fff',
@@ -200,13 +241,21 @@ const App: React.FC = () => {
       margin: 0,
     },
     videoGrid: {
-      display: 'grid',
-      gridTemplateColumns: `repeat(${layout.cols}, 1fr)`,
-      gridTemplateRows: `repeat(${layout.rows}, 1fr)`,
+      display: 'flex',
+      flexWrap: 'wrap' as const,
       gap: '20px',
       padding: '20px',
       flex: 1,
       overflow: 'auto',
+      alignContent: 'flex-start',
+    },
+    playerContainer: {
+      display: 'flex',
+      flexDirection: 'column' as const,
+      gap: '10px',
+      width: `calc(${playerWidthPercent}% - 20px)`,
+      minWidth: '200px',
+      flexShrink: 0,
     },
     videoWrapper: {
       display: 'flex',
@@ -216,6 +265,7 @@ const App: React.FC = () => {
       overflow: 'hidden',
       boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
       position: 'relative' as const,
+      width: '100%',
     },
     playerLabel: {
       position: 'absolute' as const,
@@ -236,8 +286,7 @@ const App: React.FC = () => {
     },
     videoPlayer: {
       width: '100%',
-      height: '100%',
-      minHeight: '200px',
+      height: `${videoHeight}px`,
       backgroundColor: '#000',
       objectFit: 'contain' as const,
     },
@@ -248,6 +297,17 @@ const App: React.FC = () => {
       border: 'none',
       borderTop: '1px solid #ddd',
       cursor: 'pointer',
+    },
+    metricsToggleBtn: {
+      padding: '8px 16px',
+      backgroundColor: '#61dafb',
+      color: '#282c34',
+      border: 'none',
+      fontSize: '14px',
+      fontWeight: 'bold',
+      cursor: 'pointer',
+      transition: 'background-color 0.2s',
+      borderRadius: '4px',
     },
   };
 
@@ -279,6 +339,19 @@ const App: React.FC = () => {
             </button>
           ))}
         </div>
+        
+        <div style={styles.sizeControl}>
+          <span style={styles.sizeLabel}>Player Size:</span>
+          <input
+            type="range"
+            min="50"
+            max="150"
+            value={videoSize}
+            onChange={(e) => setVideoSize(Number(e.target.value))}
+            style={styles.slider}
+          />
+          <span style={styles.sizeValue}>{videoSize}%</span>
+        </div>
       </header>
 
       <div style={styles.statusBar}>
@@ -289,32 +362,53 @@ const App: React.FC = () => {
 
       <div style={styles.videoGrid}>
         {activePlayers.map((ref, index) => (
-          <div key={index} style={styles.videoWrapper}>
-            <div style={styles.playerLabel}>
-              Stream {index + 1}: {channelNames[selectedUrls[index]] || getChannelId(hlsUrls[selectedUrls[index]] || '')}
+          <div key={index} style={styles.playerContainer}>
+            <div style={styles.videoWrapper}>
+              <div style={styles.playerLabel}>
+                Stream {index + 1}: {channelNames[selectedUrls[index]] || getChannelId(hlsUrls[selectedUrls[index]] || '')}
+              </div>
+              <video ref={ref} controls autoPlay muted style={styles.videoPlayer} />
+              <select 
+                style={styles.channelDropdown}
+                value={selectedUrls[index]}
+                onChange={(e) => handleUrlChange(index, parseInt(e.target.value))}
+              >
+                {hlsUrls.map((url, urlIndex) => (
+                  <option key={urlIndex} value={urlIndex}>
+                    {channelNames[urlIndex] || getChannelId(url)}
+                  </option>
+                ))}
+              </select>
             </div>
-            <video ref={ref} controls autoPlay muted style={styles.videoPlayer} />
-            <select 
-              style={styles.channelDropdown}
-              value={selectedUrls[index]}
-              onChange={(e) => handleUrlChange(index, parseInt(e.target.value))}
+            
+            <button
+              style={styles.metricsToggleBtn}
+              onClick={() => toggleIndividualMetrics(index)}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#4fa8c5'}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#61dafb'}
             >
-              {hlsUrls.map((url, urlIndex) => (
-                <option key={urlIndex} value={urlIndex}>
-                  {channelNames[urlIndex] || getChannelId(url)}
-                </option>
-              ))}
-            </select>
+              {showIndividualMetrics[index] ? 'Hide Metrics ▲' : 'Show Metrics ▼'}
+            </button>
+
+            {showIndividualMetrics[index] && (
+              <IndividualMetrics 
+                channelName={channelNames[selectedUrls[index]] || getChannelId(hlsUrls[selectedUrls[index]] || '')}
+                playerIndex={index}
+              />
+            )}
           </div>
         ))}
       </div>
-       <MetricsDashboard
-      channelNames={channelNames}
-      isVisible={showMetrics}
-      onToggle={() => setShowMetrics(!showMetrics)}
-    />
+
+      <MetricsDashboard
+        channelNames={channelNames}
+        activeChannelIndices={selectedUrls.slice(0, layout.totalPlayers)}
+        isVisible={showMetrics}
+        onToggle={() => setShowMetrics(!showMetrics)}
+      />
     </div>
   );
 };
 
 export default App;
+
