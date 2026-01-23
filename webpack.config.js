@@ -1,23 +1,32 @@
-
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const webpack = require('webpack');
 const dotenv = require('dotenv');
 
-// Load environment variables from .env file
+// Load environment variables from .env file (for local development)
 const env = dotenv.config().parsed || {};
 
-// Reduce it to a nice object, the same as before
-const envKeys = Object.keys(env).reduce((prev, next) => {
-  prev[`process.env.${next}`] = JSON.stringify(env[next]);
-  return prev;
-}, {});
+// Merge with process.env (for Amplify deployment)
+const envKeys = Object.keys(process.env)
+  .filter(key => key.startsWith('REACT_APP_'))
+  .reduce((prev, key) => {
+    prev[`process.env.${key}`] = JSON.stringify(process.env[key]);
+    return prev;
+  }, {});
+
+// Also include .env file variables (for local dev)
+Object.keys(env).forEach(key => {
+  if (!envKeys[`process.env.${key}`]) {
+    envKeys[`process.env.${key}`] = JSON.stringify(env[key]);
+  }
+});
 
 module.exports = {
   entry: './src/index.tsx',
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'bundle.js',
+    publicPath: '/',
   },
   resolve: {
     extensions: ['.ts', '.tsx', '.js', '.jsx'],
@@ -58,4 +67,3 @@ module.exports = {
   },
   mode: process.env.NODE_ENV || 'development',
 };
-
