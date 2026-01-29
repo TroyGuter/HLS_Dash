@@ -1,4 +1,3 @@
-
 // src/components/IndividualMetrics.tsx
 import React, { useEffect, useState } from 'react';
 import CloudWatchService, { StreamMetrics } from '../services/cloudwatch.service';
@@ -6,11 +5,13 @@ import CloudWatchService, { StreamMetrics } from '../services/cloudwatch.service
 interface IndividualMetricsProps {
   channelName: string;
   playerIndex: number;
+  mediaLiveChannelId?: string; // Add this prop
 }
 
-const IndividualMetrics: React.FC<IndividualMetricsProps> = ({ 
+const IndividualMetrics: React.FC<IndividualMetricsProps> = ({
   channelName,
-  playerIndex 
+  playerIndex,
+  mediaLiveChannelId
 }) => {
   const [metrics, setMetrics] = useState<StreamMetrics | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,7 +27,11 @@ const IndividualMetrics: React.FC<IndividualMetricsProps> = ({
     setError(null);
 
     try {
-      const result = await cloudWatchService.getChannelMetrics(channelName, 60);
+      const result = await cloudWatchService.getChannelMetrics(
+        channelName,
+        mediaLiveChannelId,
+        60
+      );
       setMetrics(result);
     } catch (err) {
       setError('Failed to fetch metrics');
@@ -40,7 +45,7 @@ const IndividualMetrics: React.FC<IndividualMetricsProps> = ({
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 60000); // Refresh every minute
     return () => clearInterval(interval);
-  }, [channelName]);
+  }, [channelName, mediaLiveChannelId]);
 
   if (loading && !metrics) {
     return <div style={{ textAlign: 'center', padding: '10px', color: '#999' }}>Loading metrics...</div>;
@@ -52,9 +57,9 @@ const IndividualMetrics: React.FC<IndividualMetricsProps> = ({
 
   if (!metrics) return null;
 
-  const latestBytes = metrics.egressBytes[metrics.egressBytes.length - 1]?.value || 0;
-  const latestRequests = metrics.requestCount[metrics.requestCount.length - 1]?.value || 0;
-  const latestLatency = metrics.responseTime[metrics.responseTime.length - 1]?.value || 0;
+  const latestBytes = cloudWatchService.getLatestValue(metrics.mediaPackage.egressBytes);
+  const latestRequests = cloudWatchService.getLatestValue(metrics.mediaPackage.requestCount);
+  const latestLatency = cloudWatchService.getLatestValue(metrics.mediaPackage.responseTime);
   const bitrate = cloudWatchService.calculateBitrate(latestBytes, 300);
 
   const styles = {
@@ -115,8 +120,8 @@ const IndividualMetrics: React.FC<IndividualMetricsProps> = ({
         </div>
         <div style={styles.metricCard}>
           <div style={styles.metricLabel}>Error Rate</div>
-          <div style={{...styles.metricValue, ...styles.errorRate(metrics.errorRate)}}>
-            {metrics.errorRate.toFixed(2)}%
+          <div style={{...styles.metricValue, ...styles.errorRate(metrics.mediaPackage.errorRate)}}>
+            {metrics.mediaPackage.errorRate.toFixed(2)}%
           </div>
         </div>
       </div>
@@ -125,4 +130,3 @@ const IndividualMetrics: React.FC<IndividualMetricsProps> = ({
 };
 
 export default IndividualMetrics;
-

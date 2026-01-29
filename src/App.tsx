@@ -2,63 +2,56 @@
 import React, { useEffect, useRef, useState } from 'react';
 import MetricsDashboard from './components/MetricsDashboard';
 import IndividualMetrics from './components/IndividualMetrics';
+import './App.css';
 
 const API_URL = process.env.REACT_APP_API_URL || 'https://7s0pbiqmb5.execute-api.us-east-2.amazonaws.com/prod';
 const API_KEY = process.env.REACT_APP_API_KEY || '';
 
-interface LayoutOption {
-  name: string;
-  rows: number;
-  cols: number;
+interface Layout {
   totalPlayers: number;
+  columns: number;
 }
 
 const App: React.FC = () => {
+  const [hlsUrls, setHlsUrls] = useState<string[]>([]);
+  const [channelNames, setChannelNames] = useState<string[]>([]);
+  const [mediaLiveChannelIds, setMediaLiveChannelIds] = useState<(string | undefined)[]>([]);
+  const [selectedUrls, setSelectedUrls] = useState<number[]>([0, 1, 2, 3, 4, 5]);
+  const [layout, setLayout] = useState<Layout>({ totalPlayers: 4, columns: 2 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showMetrics, setShowMetrics] = useState(false);
+  const [showIndividualMetrics, setShowIndividualMetrics] = useState<boolean[]>([false, false, false, false, false, false]);
+  const [videoSize, setVideoSize] = useState<number>(100);
+
   const videoRefs = [
     useRef<HTMLVideoElement>(null),
     useRef<HTMLVideoElement>(null),
     useRef<HTMLVideoElement>(null),
     useRef<HTMLVideoElement>(null),
     useRef<HTMLVideoElement>(null),
-    useRef<HTMLVideoElement>(null),
+    useRef<HTMLVideoElement>(null)
   ];
 
-  const [hlsUrls, setHlsUrls] = useState<string[]>([]);
-  const [channelNames, setChannelNames] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedUrls, setSelectedUrls] = useState([0, 1, 2, 3, 4, 5]);
-  const [showMetrics, setShowMetrics] = useState(false);
-  const [showIndividualMetrics, setShowIndividualMetrics] = useState<boolean[]>([false, false, false, false, false, false]);
-  const [videoSize, setVideoSize] = useState<number>(100);
-
-  const [layout, setLayout] = useState<LayoutOption>(() => {
-    const saved = localStorage.getItem('preferredLayout');
-    return saved ? JSON.parse(saved) : { name: '4 Players', rows: 2, cols: 2, totalPlayers: 4 };
-  });
-
   useEffect(() => {
-    localStorage.setItem('preferredLayout', JSON.stringify(layout));
-  }, [layout]);
+    fetchEndpoints();
+  }, []);
 
   const fetchEndpoints = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_URL}/channels`, {
-        headers: {
-          'x-api-key': API_KEY
-        }
+      // Fetch MediaPackage channels
+      const channelsResponse = await fetch(`${API_URL}/channels`, {
+        headers: { 'x-api-key': API_KEY }
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      if (!channelsResponse.ok) {
+        throw new Error(`HTTP ${channelsResponse.status}: ${channelsResponse.statusText}`);
       }
 
-      const channels = await response.json();
-      console.log('Fetched channels:', channels);
-
+      const channels = await channelsResponse.json();
       const urls: string[] = [];
       const names: string[] = [];
 
@@ -71,6 +64,39 @@ const App: React.FC = () => {
 
       setHlsUrls(urls);
       setChannelNames(names);
+
+      // Fetch channel mapping (MediaLive <-> MediaPackage)
+      try {
+        const mappingResponse = await fetch(`${API_URL}/channel-mapping`, {
+          headers: { 'x-api-key': API_KEY }
+        });
+
+        if (mappingResponse.ok) {
+          const mappingData = await mappingResponse.json();
+
+          // Create array of MediaLive channel IDs matching the order of MediaPackage channels
+          const mlIds = names.map(mpName => {
+            const mapping = mappingData.mapping.find(
+              (m: any) => 
+                m.mediaPackageChannelName === mpName || 
+                m.mediaPackageChannelId === mpName ||
+                m.mediaPackageChannelName.includes(mpName) ||
+                mpName.includes(m.mediaPackageChannelId)
+            );
+            return mapping?.mediaLiveChannelId;
+          });
+
+          setMediaLiveChannelIds(mlIds);
+          console.log('Channel mapping loaded:', mlIds);
+        } else {
+          console.warn('Channel mapping endpoint not available, continuing without MediaLive metrics');
+          setMediaLiveChannelIds(new Array(names.length).fill(undefined));
+        }
+      } catch (mappingError) {
+        console.warn('Could not fetch channel mapping:', mappingError);
+        setMediaLiveChannelIds(new Array(names.length).fill(undefined));
+      }
+
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch endpoints:', error);
@@ -80,14 +106,24 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchEndpoints();
-  }, []);
+    if (hlsUrls.length > 0) {
+      videoRefs.forEach((ref, index) => {
+        if (index < layout.totalPlayers) {
+          loadVideo(ref, selectedUrls[index], index);
+        }
+      });
+    }
+  }, [selectedUrls, hlsUrls, layout.totalPlayers]);
 
-  const loadVideo = async (videoRef: React.RefObject<HTMLVideoElement>, urlIndex: number) => {
+  const loadVideo = async (
+    videoRef: React.RefObject<HTMLVideoElement>,
+    urlIndex: number,
+    playerIndex: number
+  ) => {
     if (!videoRef.current || !hlsUrls[urlIndex]) return;
-    
+
     const Hls = (await import('hls.js')).default;
-    
+
     if (Hls.isSupported()) {
       const hls = new Hls();
       hls.on(Hls.Events.ERROR, (event, data) => {
@@ -106,22 +142,14 @@ const App: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    videoRefs.forEach((ref, index) => {
-      if (index < layout.totalPlayers) {
-        loadVideo(ref, selectedUrls[index]);
-      }
-    });
-  }, [selectedUrls, hlsUrls, layout.totalPlayers]);
-
-  const handleUrlChange = (playerIndex: number, urlIndex: number) => {
+  const handleChannelChange = (playerIndex: number, newUrlIndex: number) => {
     const newSelectedUrls = [...selectedUrls];
-    newSelectedUrls[playerIndex] = urlIndex;
+    newSelectedUrls[playerIndex] = newUrlIndex;
     setSelectedUrls(newSelectedUrls);
   };
 
-  const handleLayoutChange = (newLayout: LayoutOption) => {
-    setLayout(newLayout);
+  const changeLayout = (totalPlayers: number, columns: number) => {
+    setLayout({ totalPlayers, columns });
   };
 
   const toggleIndividualMetrics = (index: number) => {
@@ -130,278 +158,279 @@ const App: React.FC = () => {
     setShowIndividualMetrics(newShowMetrics);
   };
 
-  const getChannelId = (url: string) => {
-    const parts = url.split('/');
-    return parts[parts.length - 2];
-  };
-
-  const layouts: LayoutOption[] = [
-    { name: '1 Player', rows: 1, cols: 1, totalPlayers: 1 },
-    { name: '2 Players', rows: 1, cols: 2, totalPlayers: 2 },
-    { name: '4 Players', rows: 2, cols: 2, totalPlayers: 4 },
-    { name: '6 Players', rows: 2, cols: 3, totalPlayers: 6 },
-  ];
-
-  const activePlayers = videoRefs.slice(0, layout.totalPlayers);
-
   // Calculate player width based on size percentage
-  // Base width calculation: at 100%, use layout columns; scale proportionally
-  const baseWidthPercent = 100 / layout.cols;
+  const baseWidthPercent = 100 / layout.columns;
   const playerWidthPercent = (baseWidthPercent * videoSize) / 100;
-  
-  // Calculate video height based on percentage
   const videoHeight = (300 * videoSize) / 100;
 
-  const styles = {
-    appContainer: {
-      width: '100vw',
-      height: '100vh',
-      display: 'flex',
-      flexDirection: 'column' as const,
-      backgroundColor: '#f0f0f0',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif',
-    },
-    appHeader: {
-      backgroundColor: '#282c34',
-      color: 'white',
-      padding: '15px 20px',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
-      position: 'relative' as const,
-      flexWrap: 'wrap' as const,
-      gap: '15px',
-    },
-    heading: {
-      fontSize: '24px',
-      fontWeight: 700,
-      color: '#61dafb',
-      margin: 0,
-      position: 'absolute' as const,
-      left: '20px',
-    },
-    layoutSelector: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '10px',
-      flexWrap: 'wrap' as const,
-    },
-    layoutLabel: {
-      fontWeight: 600,
-      color: 'white',
-      marginRight: '5px',
-    },
-    layoutBtn: (isActive: boolean) => ({
-      padding: '8px 16px',
-      border: '2px solid #61dafb',
-      backgroundColor: isActive ? '#61dafb' : '#282c34',
-      color: isActive ? '#282c34' : '#61dafb',
-      borderRadius: '5px',
-      cursor: 'pointer',
-      fontSize: '14px',
-      fontWeight: isActive ? 600 : 500,
-      transition: 'all 0.3s ease',
-    }),
-    sizeControl: {
-      position: 'absolute' as const,
-      right: '20px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '10px',
-    },
-    sizeLabel: {
-      fontWeight: 600,
-      color: 'white',
-      fontSize: '14px',
-    },
-    slider: {
-      width: '120px',
-      height: '6px',
-      borderRadius: '3px',
-      background: '#3d3d3d',
-      outline: 'none',
-      cursor: 'pointer',
-    },
-    sizeValue: {
-      fontWeight: 600,
-      color: '#61dafb',
-      fontSize: '14px',
-      minWidth: '50px',
-    },
-    statusBar: {
-      padding: '10px 20px',
-      backgroundColor: '#fff',
-      borderBottom: '1px solid #ddd',
-      minHeight: '40px',
-    },
-    errorText: {
-      color: 'red',
-      fontWeight: 600,
-      margin: 0,
-    },
-    videoGrid: {
-      display: 'flex',
-      flexWrap: 'wrap' as const,
-      gap: '20px',
-      padding: '20px',
-      flex: 1,
-      overflow: 'auto',
-      alignContent: 'flex-start',
-    },
-    playerContainer: {
-      display: 'flex',
-      flexDirection: 'column' as const,
-      gap: '10px',
-      width: `calc(${playerWidthPercent}% - 20px)`,
-      minWidth: '200px',
-      flexShrink: 0,
-    },
-    videoWrapper: {
-      display: 'flex',
-      flexDirection: 'column' as const,
-      backgroundColor: '#000',
-      borderRadius: '8px',
-      overflow: 'hidden',
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-      position: 'relative' as const,
-      width: '100%',
-    },
-    playerLabel: {
-      position: 'absolute' as const,
-      top: '10px',
-      left: '10px',
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      color: 'white',
-      padding: '6px 12px',
-      borderRadius: '4px',
-      fontSize: '14px',
-      fontWeight: 600,
-      zIndex: 10,
-      pointerEvents: 'none' as const,
-      maxWidth: 'calc(100% - 20px)',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap' as const,
-    },
-    videoPlayer: {
-      width: '100%',
-      height: `${videoHeight}px`,
-      backgroundColor: '#000',
-      objectFit: 'contain' as const,
-    },
-    channelDropdown: {
-      padding: '8px',
-      fontSize: '14px',
-      backgroundColor: '#fff',
-      border: 'none',
-      borderTop: '1px solid #ddd',
-      cursor: 'pointer',
-    },
-    metricsToggleBtn: {
-      padding: '8px 16px',
-      backgroundColor: '#61dafb',
-      color: '#282c34',
-      border: 'none',
-      fontSize: '14px',
-      fontWeight: 'bold',
-      cursor: 'pointer',
-      transition: 'background-color 0.2s',
-      borderRadius: '4px',
-    },
-  };
+  if (loading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        color: '#61dafb',
+        fontSize: '20px'
+      }}>
+        Loading channels...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column',
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        color: '#f44336',
+        fontSize: '18px'
+      }}>
+        <div>Error: {error}</div>
+        <button 
+          onClick={fetchEndpoints}
+          style={{
+            marginTop: '20px',
+            padding: '10px 20px',
+            backgroundColor: '#61dafb',
+            color: '#282c34',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '16px'
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div style={styles.appContainer}>
-      <header style={styles.appHeader}>
-        <h1 style={styles.heading}>LS-AMER LPV DASHBOARD</h1>
-        <div style={styles.layoutSelector}>
-          <span style={styles.layoutLabel}>Layout:</span>
-          {layouts.map((layoutOption) => (
-            <button
-              key={layoutOption.name}
-              style={styles.layoutBtn(layout.totalPlayers === layoutOption.totalPlayers)}
-              onClick={() => handleLayoutChange(layoutOption)}
-              onMouseOver={(e) => {
-                if (layout.totalPlayers !== layoutOption.totalPlayers) {
-                  e.currentTarget.style.backgroundColor = '#61dafb';
-                  e.currentTarget.style.color = '#282c34';
-                }
-              }}
-              onMouseOut={(e) => {
-                if (layout.totalPlayers !== layoutOption.totalPlayers) {
-                  e.currentTarget.style.backgroundColor = '#282c34';
-                  e.currentTarget.style.color = '#61dafb';
-                }
-              }}
-            >
-              {layoutOption.name}
-            </button>
-          ))}
+    <div style={{ 
+      backgroundColor: '#282c34', 
+      minHeight: '100vh',
+      color: 'white',
+      padding: '20px'
+    }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '20px',
+        position: 'relative'
+      }}>
+        <h1 style={{ 
+          color: '#61dafb',
+          margin: 0,
+          fontSize: '24px'
+        }}>
+          LS-AMER LPV Dashboard
+        </h1>
+
+        {/* Layout Selector Buttons - Centered */}
+        <div style={{
+          position: 'absolute',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          gap: '10px'
+        }}>
+          <button
+            onClick={() => changeLayout(1, 1)}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: layout.totalPlayers === 1 ? '#61dafb' : '#3d3d3d',
+              color: layout.totalPlayers === 1 ? '#282c34' : '#ffffff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 600
+            }}
+          >
+            1 Player
+          </button>
+          <button
+            onClick={() => changeLayout(2, 2)}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: layout.totalPlayers === 2 ? '#61dafb' : '#3d3d3d',
+              color: layout.totalPlayers === 2 ? '#282c34' : '#ffffff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 600
+            }}
+          >
+            2 Players
+          </button>
+          <button
+            onClick={() => changeLayout(4, 2)}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: layout.totalPlayers === 4 ? '#61dafb' : '#3d3d3d',
+              color: layout.totalPlayers === 4 ? '#282c34' : '#ffffff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 600
+            }}
+          >
+            4 Players
+          </button>
+          <button
+            onClick={() => changeLayout(6, 3)}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: layout.totalPlayers === 6 ? '#61dafb' : '#3d3d3d',
+              color: layout.totalPlayers === 6 ? '#282c34' : '#ffffff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 600
+            }}
+          >
+            6 Players
+          </button>
         </div>
-        
-        <div style={styles.sizeControl}>
-          <span style={styles.sizeLabel}>Player Size:</span>
+
+        {/* Video Size Slider */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px'
+        }}>
+          <span style={{ fontSize: '14px', fontWeight: 600 }}>Player Size:</span>
           <input
             type="range"
             min="50"
             max="150"
             value={videoSize}
             onChange={(e) => setVideoSize(Number(e.target.value))}
-            style={styles.slider}
+            style={{
+              width: '120px',
+              cursor: 'pointer'
+            }}
           />
-          <span style={styles.sizeValue}>{videoSize}%</span>
+          <span style={{ fontSize: '14px', fontWeight: 600, color: '#61dafb', minWidth: '50px' }}>
+            {videoSize}%
+          </span>
         </div>
-      </header>
-
-      <div style={styles.statusBar}>
-        {loading && <p>Loading channels from AWS...</p>}
-        {error && <p style={styles.errorText}>Error: {error}</p>}
-        {!loading && hlsUrls.length === 0 && <p>No channels found. Deploy the Lambda function first.</p>}
       </div>
 
-      <div style={styles.videoGrid}>
-        {activePlayers.map((ref, index) => (
-          <div key={index} style={styles.playerContainer}>
-            <div style={styles.videoWrapper}>
-              <div style={styles.playerLabel}>
-                Stream {index + 1}: {channelNames[selectedUrls[index]] || getChannelId(hlsUrls[selectedUrls[index]] || '')}
+      {/* Video Players Grid */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '20px',
+        marginBottom: '20px',
+        alignContent: 'flex-start'
+      }}>
+        {videoRefs.slice(0, layout.totalPlayers).map((ref, index) => (
+          <div key={index} style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            width: `calc(${playerWidthPercent}% - 20px)`,
+            minWidth: '200px',
+            flexShrink: 0
+          }}>
+            <div style={{
+              backgroundColor: '#1e1e1e',
+              borderRadius: '8px',
+              padding: '15px',
+              border: '2px solid #3d3d3d'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '10px'
+              }}>
+                <label style={{ 
+                  fontSize: '14px',
+                  color: '#61dafb',
+                  fontWeight: 600
+                }}>
+                  Player {index + 1}
+                </label>
+                <select
+                  value={selectedUrls[index]}
+                  onChange={(e) => handleChannelChange(index, parseInt(e.target.value))}
+                  style={{
+                    padding: '5px 10px',
+                    backgroundColor: '#3d3d3d',
+                    color: '#ffffff',
+                    border: '1px solid #61dafb',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {channelNames.map((name, idx) => (
+                    <option key={idx} value={idx}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <video ref={ref} controls autoPlay muted style={styles.videoPlayer} />
-              <select 
-                style={styles.channelDropdown}
-                value={selectedUrls[index]}
-                onChange={(e) => handleUrlChange(index, parseInt(e.target.value))}
-              >
-                {hlsUrls.map((url, urlIndex) => (
-                  <option key={urlIndex} value={urlIndex}>
-                    {channelNames[urlIndex] || getChannelId(url)}
-                  </option>
-                ))}
-              </select>
+              <video
+                ref={ref}
+                controls
+                style={{
+                  width: '100%',
+                  height: `${videoHeight}px`,
+                  backgroundColor: '#000',
+                  borderRadius: '4px',
+                  objectFit: 'contain'
+                }}
+              />
             </div>
-            
+
+            {/* Individual Metrics Toggle Button */}
             <button
-              style={styles.metricsToggleBtn}
               onClick={() => toggleIndividualMetrics(index)}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#61dafb',
+                color: '#282c34',
+                border: 'none',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s'
+              }}
               onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#4fa8c5'}
               onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#61dafb'}
             >
               {showIndividualMetrics[index] ? 'Hide Metrics ▲' : 'Show Metrics ▼'}
             </button>
 
+            {/* Individual Metrics Panel - Docked Under Video */}
             {showIndividualMetrics[index] && (
               <IndividualMetrics 
-                channelName={channelNames[selectedUrls[index]] || getChannelId(hlsUrls[selectedUrls[index]] || '')}
+                channelName={channelNames[selectedUrls[index]]}
                 playerIndex={index}
+                mediaLiveChannelId={mediaLiveChannelIds[selectedUrls[index]]}
               />
             )}
           </div>
         ))}
       </div>
 
+      {/* Side Panel Metrics Dashboard */}
       <MetricsDashboard
         channelNames={channelNames}
+        mediaLiveChannelIds={mediaLiveChannelIds}
         activeChannelIndices={selectedUrls.slice(0, layout.totalPlayers)}
         isVisible={showMetrics}
         onToggle={() => setShowMetrics(!showMetrics)}

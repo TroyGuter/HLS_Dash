@@ -1,35 +1,36 @@
 
-// src/components/MetricsDashboard.tsx
 import React, { useEffect, useState } from 'react';
-import CloudWatchService, { StreamMetrics } from '../services/cloudwatch.service';
+import CloudWatchService from '../services/cloudwatch.service';
+import { StreamMetrics } from '../services/cloudwatch.service';
+
+const API_URL = process.env.REACT_APP_API_URL || 'https://7s0pbiqmb5.execute-api.us-east-2.amazonaws.com/prod';
+const API_KEY = process.env.REACT_APP_API_KEY || '';
 
 interface MetricsDashboardProps {
   channelNames: string[];
+  mediaLiveChannelIds: (string | undefined)[];
   activeChannelIndices: number[];
   isVisible: boolean;
   onToggle: () => void;
 }
 
-const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ 
+const MetricsDashboard: React.FC<MetricsDashboardProps> = ({
   channelNames,
-  activeChannelIndices, 
+  mediaLiveChannelIds,
+  activeChannelIndices,
   isVisible,
-  onToggle 
+  onToggle
 }) => {
   const [metrics, setMetrics] = useState<StreamMetrics[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://7s0pbiqmb5.execute-api.us-east-2.amazonaws.com/prod';
-const API_KEY = process.env.REACT_APP_API_KEY || '';
-
-const cloudWatchService = new CloudWatchService(API_URL, API_KEY);
-
+  const cloudWatchService = new CloudWatchService(API_URL, API_KEY);
 
   const fetchMetrics = async () => {
-    // Only fetch metrics for channels that are currently displayed
     const activeChannelNames = activeChannelIndices.map(index => channelNames[index]);
+    const activeMLChannelIds = activeChannelIndices.map(index => mediaLiveChannelIds[index]);
 
     if (activeChannelNames.length === 0) return;
 
@@ -37,8 +38,8 @@ const cloudWatchService = new CloudWatchService(API_URL, API_KEY);
     setError(null);
 
     try {
-      const metricsPromises = activeChannelNames.map(name =>
-        cloudWatchService.getChannelMetrics(name, 60)
+      const metricsPromises = activeChannelNames.map((name, idx) =>
+        cloudWatchService.getChannelMetrics(name, activeMLChannelIds[idx], 60)
       );
       const results = await Promise.all(metricsPromises);
       setMetrics(results);
@@ -61,43 +62,39 @@ const cloudWatchService = new CloudWatchService(API_URL, API_KEY);
 
     const interval = setInterval(() => {
       fetchMetrics();
-    }, 60000); // Refresh every minute
+    }, 60000); // Refresh every 60 seconds
 
     return () => clearInterval(interval);
-  }, [autoRefresh, isVisible, channelNames]);
-
-  const calculateTotalBandwidth = () => {
-    const total = metrics.reduce((sum, metric) => {
-      const latestBytes = metric.egressBytes[metric.egressBytes.length - 1]?.value || 0;
-      return sum + latestBytes;
-    }, 0);
-    return cloudWatchService.formatBytes(total);
-  };
-
-  const calculateAverageLatency = () => {
-    if (metrics.length === 0) return '0 ms';
-    const total = metrics.reduce((sum, metric) => {
-      const latestLatency = metric.responseTime[metric.responseTime.length - 1]?.value || 0;
-      return sum + latestLatency;
-    }, 0);
-    return (total / metrics.length).toFixed(2) + ' ms';
-  };
+  }, [autoRefresh, isVisible, activeChannelIndices]);
 
   const styles = {
     container: {
       position: 'fixed' as const,
-      right: isVisible ? '0' : '-400px',
-      top: '0',
+      right: isVisible ? 0 : '-400px',
+      top: 0,
       width: '400px',
       height: '100vh',
       backgroundColor: '#1e1e1e',
-      color: '#fff',
-      boxShadow: '-2px 0 10px rgba(0,0,0,0.3)',
+      color: '#ffffff',
+      boxShadow: '-2px 0 10px rgba(0, 0, 0, 0.3)',
       transition: 'right 0.3s ease',
       zIndex: 1000,
+      overflowY: 'auto' as const,
+      padding: '20px'
+    },
+    header: {
       display: 'flex',
-      flexDirection: 'column' as const,
-      overflow: 'hidden',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: '20px',
+      paddingBottom: '15px',
+      borderBottom: '2px solid #61dafb'
+    },
+    title: {
+      fontSize: '20px',
+      fontWeight: 700,
+      color: '#61dafb',
+      margin: 0
     },
     toggleButton: {
       position: 'fixed' as const,
@@ -109,206 +106,250 @@ const cloudWatchService = new CloudWatchService(API_URL, API_KEY);
       border: 'none',
       padding: '15px 10px',
       cursor: 'pointer',
-      borderRadius: '5px 0 0 5px',
       fontSize: '16px',
-      fontWeight: 'bold',
+      fontWeight: 600,
+      borderRadius: '5px 0 0 5px',
       transition: 'right 0.3s ease',
       zIndex: 1001,
-    },
-    header: {
-      padding: '20px',
-      backgroundColor: '#282c34',
-      borderBottom: '2px solid #61dafb',
-    },
-    title: {
-      margin: '0 0 10px 0',
-      fontSize: '20px',
-      fontWeight: 'bold',
+      writingMode: 'vertical-rl' as const,
+      textOrientation: 'mixed' as const
     },
     controls: {
       display: 'flex',
       gap: '10px',
-      alignItems: 'center',
+      marginBottom: '20px'
     },
-    refreshButton: {
-      padding: '5px 10px',
+    button: {
+      padding: '8px 12px',
       backgroundColor: '#61dafb',
       color: '#282c34',
       border: 'none',
-      borderRadius: '3px',
+      borderRadius: '4px',
       cursor: 'pointer',
-      fontSize: '12px',
-    },
-    autoRefreshLabel: {
-      fontSize: '12px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '5px',
-    },
-    content: {
-      flex: 1,
-      overflowY: 'auto' as const,
-      padding: '20px',
-    },
-    summaryCards: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: '10px',
-      marginBottom: '20px',
-    },
-    card: {
-      backgroundColor: '#2d2d2d',
-      padding: '15px',
-      borderRadius: '8px',
-      border: '1px solid #3d3d3d',
-    },
-    cardTitle: {
-      fontSize: '12px',
-      color: '#999',
-      marginBottom: '5px',
-    },
-    cardValue: {
-      fontSize: '20px',
-      fontWeight: 'bold',
-      color: '#61dafb',
-    },
-    channelMetrics: {
-      marginTop: '20px',
+      fontSize: '14px',
+      fontWeight: 600
     },
     channelCard: {
       backgroundColor: '#2d2d2d',
-      padding: '15px',
       borderRadius: '8px',
-      marginBottom: '15px',
-      border: '1px solid #3d3d3d',
+      padding: '15px',
+      marginBottom: '20px',
+      border: '1px solid #3d3d3d'
     },
     channelName: {
       fontSize: '16px',
-      fontWeight: 'bold',
-      marginBottom: '10px',
+      fontWeight: 700,
       color: '#61dafb',
+      marginBottom: '5px',
+      display: 'flex',
+      alignItems: 'center'
+    },
+    channelSubtitle: {
+      fontSize: '12px',
+      color: '#999',
+      marginBottom: '15px'
+    },
+    sectionHeader: {
+      fontSize: '14px',
+      fontWeight: 700,
+      color: '#ffffff',
+      marginTop: '15px',
+      marginBottom: '10px',
+      paddingBottom: '5px',
+      borderBottom: '1px solid #3d3d3d'
     },
     metricRow: {
       display: 'flex',
       justifyContent: 'space-between',
-      padding: '5px 0',
-      fontSize: '14px',
+      padding: '8px 0',
+      borderBottom: '1px solid #3d3d3d'
     },
     metricLabel: {
-      color: '#999',
+      fontSize: '13px',
+      color: '#ccc'
     },
     metricValue: {
-      color: '#fff',
-      fontWeight: 'bold',
+      fontSize: '13px',
+      fontWeight: 600,
+      color: '#61dafb'
     },
-    errorRate: (rate: number) => ({
-      color: rate > 5 ? '#ff4444' : rate > 1 ? '#ffaa00' : '#44ff44',
+    statusIndicator: (status: 'good' | 'warning' | 'error') => ({
+      display: 'inline-block',
+      width: '10px',
+      height: '10px',
+      borderRadius: '50%',
+      backgroundColor: status === 'good' ? '#4caf50' : status === 'warning' ? '#ff9800' : '#f44336',
+      marginRight: '8px'
     }),
-    loading: {
+    loadingText: {
       textAlign: 'center' as const,
-      padding: '20px',
       color: '#999',
+      padding: '20px'
     },
-    error: {
-      backgroundColor: '#ff4444',
-      color: '#fff',
-      padding: '10px',
-      borderRadius: '5px',
-      marginBottom: '10px',
-    },
+    errorText: {
+      color: '#f44336',
+      padding: '20px',
+      textAlign: 'center' as const
+    }
+  };
+
+  const getHealthStatus = (metric: StreamMetrics): 'good' | 'warning' | 'error' => {
+    if (metric.mediaPackage.errorRate > 5) return 'error';
+    if (metric.mediaPackage.errorRate > 1) return 'warning';
+    return 'good';
   };
 
   return (
     <>
       <button style={styles.toggleButton} onClick={onToggle}>
-        {isVisible ? '→' : '← Metrics'}
+        {isVisible ? '→ Metrics' : '← Metrics'}
       </button>
-      
+
       <div style={styles.container}>
         <div style={styles.header}>
-          <h2 style={styles.title}>CloudWatch Metrics</h2>
-          <div style={styles.controls}>
-            <button style={styles.refreshButton} onClick={fetchMetrics} disabled={loading}>
-              {loading ? 'Loading...' : 'Refresh'}
-            </button>
-            <label style={styles.autoRefreshLabel}>
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)}
-              />
-              Auto-refresh
-            </label>
-          </div>
+          <h2 style={styles.title}>Stream Metrics</h2>
         </div>
 
-        <div style={styles.content}>
-          {error && <div style={styles.error}>{error}</div>}
-          
-          {loading && metrics.length === 0 ? (
-            <div style={styles.loading}>Loading metrics...</div>
-          ) : (
-            <>
-              <div style={styles.summaryCards}>
-                <div style={styles.card}>
-                  <div style={styles.cardTitle}>Total Bandwidth</div>
-                  <div style={styles.cardValue}>{calculateTotalBandwidth()}</div>
-                </div>
-                <div style={styles.card}>
-                  <div style={styles.cardTitle}>Avg Latency</div>
-                  <div style={styles.cardValue}>{calculateAverageLatency()}</div>
-                </div>
-                <div style={styles.card}>
-                  <div style={styles.cardTitle}>Active Streams</div>
-                  <div style={styles.cardValue}>{metrics.length}</div>
-                </div>
-                <div style={styles.card}>
-                  <div style={styles.cardTitle}>Status</div>
-                  <div style={styles.cardValue}>
-                    {metrics.every(m => m.errorRate < 1) ? '✓ Healthy' : '⚠ Issues'}
-                  </div>
-                </div>
+        <div style={styles.controls}>
+          <button style={styles.button} onClick={fetchMetrics}>
+            Refresh Now
+          </button>
+          <button
+            style={{
+              ...styles.button,
+              backgroundColor: autoRefresh ? '#61dafb' : '#3d3d3d'
+            }}
+            onClick={() => setAutoRefresh(!autoRefresh)}
+          >
+            Auto-refresh: {autoRefresh ? 'ON' : 'OFF'}
+          </button>
+        </div>
+
+        {loading && <div style={styles.loadingText}>Loading metrics...</div>}
+        {error && <div style={styles.errorText}>{error}</div>}
+
+        {!loading && !error && metrics.map((metric, index) => {
+          const playerIndex = activeChannelIndices[index];
+          const healthStatus = getHealthStatus(metric);
+
+          // MediaPackage metrics
+          const mpLatestBytes = cloudWatchService.getLatestValue(metric.mediaPackage.egressBytes);
+          const mpBitrate = cloudWatchService.calculateBitrate(mpLatestBytes, 300);
+          const mpLatestRequests = cloudWatchService.getLatestValue(metric.mediaPackage.requestCount);
+          const mpLatestLatency = cloudWatchService.getLatestValue(metric.mediaPackage.responseTime);
+
+          // MediaLive metrics (if available)
+          const mlInputFps = metric.mediaLive
+            ? cloudWatchService.getLatestValue(metric.mediaLive.pipeline0.inputVideoFrameRate)
+            : null;
+          const mlOutputFps = metric.mediaLive
+            ? cloudWatchService.getLatestValue(metric.mediaLive.pipeline0.outputVideoFrameRate)
+            : null;
+          const mlDroppedFrames = metric.mediaLive?.pipeline0.droppedFrames
+            ? cloudWatchService.getLatestValue(metric.mediaLive.pipeline0.droppedFrames)
+            : null;
+          const mlNetworkOut = metric.mediaLive?.pipeline0.networkOut
+            ? cloudWatchService.getLatestValue(metric.mediaLive.pipeline0.networkOut)
+            : null;
+
+          // Pipeline 1 metrics for redundancy monitoring
+          const mlInputFpsP1 = metric.mediaLive
+            ? cloudWatchService.getLatestValue(metric.mediaLive.pipeline1.inputVideoFrameRate)
+            : null;
+          const mlOutputFpsP1 = metric.mediaLive
+            ? cloudWatchService.getLatestValue(metric.mediaLive.pipeline1.outputVideoFrameRate)
+            : null;
+
+          return (
+            <div key={index} style={styles.channelCard}>
+              <div style={styles.channelName}>
+                <span style={styles.statusIndicator(healthStatus)}></span>
+                Player {playerIndex + 1}: {metric.channelName}
               </div>
+              {metric.mediaLiveChannelId && (
+                <div style={styles.channelSubtitle}>
+                  MediaLive: {metric.mediaLiveChannelId}
+                </div>
+              )}
 
-              <div style={styles.channelMetrics}>
-                <h3>Channel Details</h3>
-                {metrics.map((metric, index) => {
-                  const playerIndex = activeChannelIndices[index];
-                  const latestBytes = metric.egressBytes[metric.egressBytes.length - 1]?.value || 0;
-                  const latestRequests = metric.requestCount[metric.requestCount.length - 1]?.value || 0;
-                  const latestLatency = metric.responseTime[metric.responseTime.length - 1]?.value || 0;
-                  const bitrate = cloudWatchService.calculateBitrate(latestBytes, 300);
-
-                return (
-                  <div key={index} style={styles.channelCard}>
-                    <div style={styles.channelName}>
-                      Player {playerIndex + 1}: {metric.channelName}
+              {/* MediaLive Section */}
+              {metric.mediaLive && (
+                <>
+                  <div style={styles.sectionHeader}>MediaLive (Encoding)</div>
+                  
+                  {/* Pipeline 0 */}
+                  <div style={{ fontSize: '12px', color: '#999', marginTop: '10px', marginBottom: '5px' }}>
+                    Pipeline 0
                   </div>
-                      <div style={styles.metricRow}>
-                        <span style={styles.metricLabel}>Bitrate:</span>
-                        <span style={styles.metricValue}>{bitrate}</span>
-                      </div>
-                      <div style={styles.metricRow}>
-                        <span style={styles.metricLabel}>Requests:</span>
-                        <span style={styles.metricValue}>{latestRequests.toFixed(0)}</span>
-                      </div>
-                      <div style={styles.metricRow}>
-                        <span style={styles.metricLabel}>Latency:</span>
-                        <span style={styles.metricValue}>{latestLatency.toFixed(2)} ms</span>
-                      </div>
-                      <div style={styles.metricRow}>
-                        <span style={styles.metricLabel}>Error Rate:</span>
-                        <span style={{...styles.metricValue, ...styles.errorRate(metric.errorRate)}}>
-                          {metric.errorRate.toFixed(2)}%
-                        </span>
-                      </div>
+                  <div style={styles.metricRow}>
+                    <span style={styles.metricLabel}>Input FPS:</span>
+                    <span style={styles.metricValue}>
+                      {mlInputFps !== null ? mlInputFps.toFixed(2) : 'N/A'}
+                    </span>
+                  </div>
+                  <div style={styles.metricRow}>
+                    <span style={styles.metricLabel}>Output FPS:</span>
+                    <span style={styles.metricValue}>
+                      {mlOutputFps !== null ? mlOutputFps.toFixed(2) : 'N/A'}
+                    </span>
+                  </div>
+                  {mlDroppedFrames !== null && (
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Dropped Frames:</span>
+                      <span style={styles.metricValue}>
+                        {mlDroppedFrames.toFixed(0)}
+                      </span>
                     </div>
-                  );
-                })}
+                  )}
+                  {mlNetworkOut !== null && (
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Network Out:</span>
+                      <span style={styles.metricValue}>
+                        {cloudWatchService.calculateBitrate(mlNetworkOut, 300)}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Pipeline 1 */}
+                  <div style={{ fontSize: '12px', color: '#999', marginTop: '10px', marginBottom: '5px' }}>
+                    Pipeline 1 (Redundancy)
+                  </div>
+                  <div style={styles.metricRow}>
+                    <span style={styles.metricLabel}>Input FPS:</span>
+                    <span style={styles.metricValue}>
+                      {mlInputFpsP1 !== null ? mlInputFpsP1.toFixed(2) : 'N/A'}
+                    </span>
+                  </div>
+                  <div style={styles.metricRow}>
+                    <span style={styles.metricLabel}>Output FPS:</span>
+                    <span style={styles.metricValue}>
+                      {mlOutputFpsP1 !== null ? mlOutputFpsP1.toFixed(2) : 'N/A'}
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {/* MediaPackage Section */}
+              <div style={styles.sectionHeader}>MediaPackage (Delivery)</div>
+              <div style={styles.metricRow}>
+                <span style={styles.metricLabel}>Bitrate:</span>
+                <span style={styles.metricValue}>{mpBitrate}</span>
               </div>
-            </>
-          )}
-        </div>
+              <div style={styles.metricRow}>
+                <span style={styles.metricLabel}>Requests:</span>
+                <span style={styles.metricValue}>{mpLatestRequests.toFixed(0)}</span>
+              </div>
+              <div style={styles.metricRow}>
+                <span style={styles.metricLabel}>Latency:</span>
+                <span style={styles.metricValue}>{mpLatestLatency.toFixed(2)} ms</span>
+              </div>
+              <div style={styles.metricRow}>
+                <span style={styles.metricLabel}>Error Rate:</span>
+                <span style={styles.metricValue}>{metric.mediaPackage.errorRate.toFixed(2)}%</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </>
   );
