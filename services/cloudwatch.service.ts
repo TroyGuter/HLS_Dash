@@ -41,111 +41,114 @@ class CloudWatchService {
   }
 
   async getChannelMetrics(
-    channelName: string,
-    mediaLiveChannelId: string | undefined,
-    timeRangeMinutes: number = 60
-  ): Promise<StreamMetrics> {
-    try {
-      const response = await fetch(`${this.apiUrl}/metrics`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': this.apiKey
-        },
-        body: JSON.stringify({
-          channelName,
-          mediaLiveChannelId,
-          timeRangeMinutes
-        })
-      });
+  channelName: string,
+  mediaLiveChannelId: string | undefined,
+  timeRangeMinutes: number = 60
+): Promise<StreamMetrics> {
+  try {
+    const response = await fetch(`${this.apiUrl}/metrics`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey
+      },
+      body: JSON.stringify({
+        channelName,
+        mediaLiveChannelId,
+        timeRangeMinutes
+      })
+    });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      let data = await response.json();
-      
-      // Check if API Gateway wrapped the response with a body field
-      if (data.body && typeof data.body === 'string') {
-        console.log('Unwrapping API Gateway response body');
-        data = JSON.parse(data.body);
-      }
-
-      console.log('Parsed metrics data:', data);
-
-      // Validate response structure
-      if (!data.mediaPackage) {
-        console.error('Invalid response structure:', data);
-        throw new Error('Response missing mediaPackage data');
-      }
-
-      // Convert timestamp strings back to Date objects for MediaPackage
-      const mediaPackage: MediaPackageMetrics = {
-        egressBytes: (data.mediaPackage.egressBytes || []).map((d: any) => ({
-          ...d,
-          timestamp: new Date(d.timestamp)
-        })),
-        requestCount: (data.mediaPackage.requestCount || []).map((d: any) => ({
-          ...d,
-          timestamp: new Date(d.timestamp)
-        })),
-        responseTime: (data.mediaPackage.responseTime || []).map((d: any) => ({
-          ...d,
-          timestamp: new Date(d.timestamp)
-        })),
-        errorRate: data.mediaPackage.errorRate || 0
-      };
-
-      // Convert timestamp strings for MediaLive if present
-      let mediaLive: MediaLiveMetrics | undefined;
-      if (data.mediaLive) {
-        mediaLive = {
-          pipeline0: {
-            inputVideoFrameRate: (data.mediaLive.pipeline0?.inputVideoFrameRate || []).map((d: any) => ({
-              ...d,
-              timestamp: new Date(d.timestamp)
-            })),
-            outputVideoFrameRate: (data.mediaLive.pipeline0?.outputVideoFrameRate || []).map((d: any) => ({
-              ...d,
-              timestamp: new Date(d.timestamp)
-            })),
-            networkOut: data.mediaLive.pipeline0?.networkOut?.map((d: any) => ({
-              ...d,
-              timestamp: new Date(d.timestamp)
-            })),
-            droppedFrames: data.mediaLive.pipeline0?.droppedFrames?.map((d: any) => ({
-              ...d,
-              timestamp: new Date(d.timestamp)
-            })),
-            activeOutputs: data.mediaLive.pipeline0?.activeOutputs?.map((d: any) => ({
-              ...d,
-              timestamp: new Date(d.timestamp)
-            }))
-          },
-          pipeline1: {
-            inputVideoFrameRate: (data.mediaLive.pipeline1?.inputVideoFrameRate || []).map((d: any) => ({
-              ...d,
-              timestamp: new Date(d.timestamp)
-            })),
-            outputVideoFrameRate: (data.mediaLive.pipeline1?.outputVideoFrameRate || []).map((d: any) => ({
-              ...d,
-              timestamp: new Date(d.timestamp)
-            }))
-          }
-        };
-      }
-
-      return {
-        channelName: data.channelName,
-        mediaLiveChannelId: data.mediaLiveChannelId,
-        mediaPackage,
-        mediaLive
-      };
-    } catch (error) {
-      console.error('Error fetching metrics:', error);
-      throw error;
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
+
+    let data = await response.json();
+
+    // Handle API Gateway response wrapping
+    if (data.statusCode && data.body) {
+      console.log('Detected API Gateway wrapped response');
+      data = JSON.parse(data.body);
+    } else if (data.body && typeof data.body === 'string') {
+      console.log('Unwrapping string body');
+      data = JSON.parse(data.body);
+    }
+
+    console.log('Final parsed data:', data);
+
+    // Validate response structure
+    if (!data || !data.mediaPackage || !data.mediaPackage.egressBytes) {
+      console.error('Invalid response structure:', data);
+      throw new Error('Response missing required mediaPackage.egressBytes data');
+    }
+
+    // Convert timestamp strings back to Date objects for MediaPackage
+    const mediaPackage: MediaPackageMetrics = {
+      egressBytes: (data.mediaPackage.egressBytes || []).map((d: any) => ({
+        ...d,
+        timestamp: new Date(d.timestamp)
+      })),
+      requestCount: (data.mediaPackage.requestCount || []).map((d: any) => ({
+        ...d,
+        timestamp: new Date(d.timestamp)
+      })),
+      responseTime: (data.mediaPackage.responseTime || []).map((d: any) => ({
+        ...d,
+        timestamp: new Date(d.timestamp)
+      })),
+      errorRate: data.mediaPackage.errorRate || 0
+    };
+
+    // Convert timestamp strings for MediaLive if present
+    let mediaLive: MediaLiveMetrics | undefined;
+    if (data.mediaLive) {
+      mediaLive = {
+        pipeline0: {
+          inputVideoFrameRate: (data.mediaLive.pipeline0?.inputVideoFrameRate || []).map((d: any) => ({
+            ...d,
+            timestamp: new Date(d.timestamp)
+          })),
+          outputVideoFrameRate: (data.mediaLive.pipeline0?.outputVideoFrameRate || []).map((d: any) => ({
+            ...d,
+            timestamp: new Date(d.timestamp)
+          })),
+          networkOut: data.mediaLive.pipeline0?.networkOut?.map((d: any) => ({
+            ...d,
+            timestamp: new Date(d.timestamp)
+          })),
+          droppedFrames: data.mediaLive.pipeline0?.droppedFrames?.map((d: any) => ({
+            ...d,
+            timestamp: new Date(d.timestamp)
+          })),
+          activeOutputs: data.mediaLive.pipeline0?.activeOutputs?.map((d: any) => ({
+            ...d,
+            timestamp: new Date(d.timestamp)
+          }))
+        },
+        pipeline1: {
+          inputVideoFrameRate: (data.mediaLive.pipeline1?.inputVideoFrameRate || []).map((d: any) => ({
+            ...d,
+            timestamp: new Date(d.timestamp)
+          })),
+          outputVideoFrameRate: (data.mediaLive.pipeline1?.outputVideoFrameRate || []).map((d: any) => ({
+            ...d,
+            timestamp: new Date(d.timestamp)
+          }))
+        }
+      };
+    }
+
+    return {
+      channelName: data.channelName,
+      mediaLiveChannelId: data.mediaLiveChannelId,
+      mediaPackage,
+      mediaLive
+    };
+  } catch (error) {
+    console.error('Error fetching metrics:', error);
+    throw error;
   }
+}
 
   formatBytes(bytes: number): string {
     if (bytes === 0) return '0 Bytes';
